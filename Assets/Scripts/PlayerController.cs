@@ -11,11 +11,11 @@ public class PlayerController : MonoBehaviour
     public float Deceleration;
     public float Speed;
 
-    public float Gravity;
-
     public float MaxSlopeAngle;
     public float MaxSlideSpeed;
 
+    public float CoyoteTime;
+    public float MinJumpHeight;
     public float MaxJumpHeight;
     public float MaxJumpTime;
     public float MaxJumpButtonHoldTime;
@@ -37,7 +37,8 @@ public class PlayerController : MonoBehaviour
     {
         float x = Input.GetAxis("Horizontal");
         _inputDirection = Vector2.right * x;
-        Debug.Log(_inputDirection);
+        _jumpPressed = Input.GetButton("Jump");
+        Debug.Log(_jumpPressed);
         RotateWithGround();
     }
 
@@ -49,10 +50,23 @@ public class PlayerController : MonoBehaviour
         /// -To keep movement speed the same when entering a slope, need to adjust after determining that we're entering a slope
         /// -Need to get information about the collider that you're colliding with (i.e. find the place you're colliding with)
         _currentContact = GetCurrentGroundContact();
-        if (_currentContact.HasContact)
+        if (!_hasJumped && _jumpPressed && Time.fixedTime - _lastGroundTime < CoyoteTime)
         {
+            _jumpHoldTime = 0;
+            _velocity.y = InitialJumpImpulse;
+            _inAir = true;
+            _hasJumped = true;
+        }
+        else if (_currentContact.HasContact)
+        {
+            if (_inAir)
+            {
+                _velocity.y = 0;
+            }
             _lastGroundTime = Time.fixedTime;
             _inAir = false;
+            _hasJumped = false;
+            _jumpHoldTime = 0;
             if (Mathf.Abs(_currentContact.AngleFromUpright) > MaxSlopeAngle)
             {
                 Vector2 slideDirection = _currentContact.Slope;
@@ -101,6 +115,24 @@ public class PlayerController : MonoBehaviour
 
             MoveAlongGround(Time.fixedDeltaTime);
         }
+        else
+        {
+            _inAir = true;
+        }
+        if (_inAir)
+        {
+            if (_jumpHoldTime < MaxJumpButtonHoldTime && _jumpPressed)
+            {
+                _velocity += Vector2.up * JumpHoldAcceleration * Time.fixedDeltaTime;
+                _jumpHoldTime += Time.fixedDeltaTime;
+            }
+            else
+            {
+                _jumpHoldTime = MaxJumpButtonHoldTime;
+            }
+            _velocity += Vector2.down * Gravity * Time.fixedDeltaTime;
+            transform.position += (Vector3)_velocity * Time.fixedDeltaTime;
+        }
     }
 
     private void RotateWithGround()
@@ -124,6 +156,13 @@ public class PlayerController : MonoBehaviour
         float totalDistance = _velocity.magnitude * deltaTime;
         float incrementTime = deltaTime * (totalDistance / SimulationIncrementDistance);
         Vector2 currentPosition = transform.position;
+        if (_currentContact.HasContact)
+        {
+            Vector2 startPosition = currentPosition + Vector2.up.RotateRadians(_currentContact.RadiansFromUpright);
+            Vector2 downDirection = Vector2.down.RotateRadians(_currentContact.RadiansFromUpright);
+            RaycastHit2D hit = Physics2D.BoxCast(startPosition, Collider.size, _currentContact.AngleFromUpright, downDirection, 2f, ~LayerMask.GetMask("Character"));
+            currentPosition = startPosition + downDirection * hit.distance - Collider.offset.RotateRadians(_currentContact.RadiansFromUpright);
+        }
         while (totalDistance > EPSILON && _currentContact.HasContact)
         {
             deltaTime = Mathf.Max(0, deltaTime - incrementTime);
@@ -150,15 +189,15 @@ public class PlayerController : MonoBehaviour
 
     private GroundContact GetCurrentGroundContact(Vector2 position)
     {
-        Vector2 left = (Vector2)transform.position + Vector2.left * Collider.size.x * 0.5f + Vector2.up;
+        Vector2 left = position + Vector2.left * Collider.size.x * 0.5f + Vector2.up * 0.25f;
         Vector2 right = left + Vector2.right * Collider.size.x;
         return FindGroundContact(left, right, 4);
     }
 
     private static GroundContact FindGroundContact(Vector2 left, Vector2 right, int maxDepth)
     {
-        RaycastHit2D leftHit = Physics2D.Raycast(left, Vector2.down, 2f, ~LayerMask.GetMask("Character"));
-        RaycastHit2D rightHit = Physics2D.Raycast(right, Vector2.down, 2f, ~LayerMask.GetMask("Character"));
+        RaycastHit2D leftHit = Physics2D.Raycast(left, Vector2.down, 0.5f, ~LayerMask.GetMask("Character"));
+        RaycastHit2D rightHit = Physics2D.Raycast(right, Vector2.down, 0.5f, ~LayerMask.GetMask("Character"));
         if (leftHit.collider == null)
         {
             if (rightHit.collider == null)
@@ -190,11 +229,38 @@ public class PlayerController : MonoBehaviour
         return new GroundContact() { Slope = slope, HasContact = true };
     }
 
+    public float Gravity
+    {
+        get
+        {
+            return 2 * MaxJumpTime * MaxJumpTime * MaxJumpHeight;
+        }
+    }
+
+    private float InitialJumpImpulse
+    {
+        get
+        {
+            return Mathf.Sqrt(2 * Gravity * MinJumpHeight);
+        }
+    }
+
+    private float JumpHoldAcceleration
+    {
+        get
+        {
+            float initialVelocity = InitialJumpImpulse;
+            return Gravity - (initialVelocity * initialVelocity) / (2 * MaxJumpHeight);
+        }
+    }
+
     private Vector2 _velocity;
     private Vector2 _inputDirection;
     private float _jumpHoldTime;
     private float _lastGroundTime;
     private bool _inAir;
+    private bool _jumpPressed;
+    private bool _hasJumped;
     private GroundContact _currentContact;
 
     private const float EPSILON = 0.001f;
