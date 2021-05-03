@@ -7,8 +7,23 @@ public class PlayerController : MonoBehaviour
 {
     public BoxCollider2D Collider;
 
-    public float Acceleration;
-    public float Deceleration;
+    public float TimeToTopSpeed;
+    public float TimeToStop;
+
+    public float Acceleration
+    {
+        get
+        {
+            return Speed / TimeToTopSpeed;
+        }
+    }
+    public float Deceleration
+    {
+        get
+        {
+            return Speed / TimeToStop;
+        }
+    }
     public float Speed;
 
     public float MaxSlopeAngle;
@@ -20,6 +35,7 @@ public class PlayerController : MonoBehaviour
     public float MaxJumpTime;
     public float MaxJumpButtonHoldTime;
     public float MaxFallSpeed;
+    public float InAirMovementModifier;
 
     public float SimulationIncrementDistance;
 
@@ -38,7 +54,6 @@ public class PlayerController : MonoBehaviour
         float x = Input.GetAxis("Horizontal");
         _inputDirection = Vector2.right * x;
         _jumpPressed = Input.GetButton("Jump");
-        Debug.Log(_jumpPressed);
         RotateWithGround();
     }
 
@@ -57,15 +72,13 @@ public class PlayerController : MonoBehaviour
             _inAir = true;
             _hasJumped = true;
         }
-        else if (_currentContact.HasContact)
+        else if (_currentContact.HasContact && !_inAir)
         {
-            if (_inAir)
+            if (Mathf.Abs(_currentContact.AngleFromUpright) < MaxSlopeAngle && !_jumpPressed)
             {
-                _velocity.y = 0;
+                _hasJumped = false;
             }
             _lastGroundTime = Time.fixedTime;
-            _inAir = false;
-            _hasJumped = false;
             _jumpHoldTime = 0;
             if (Mathf.Abs(_currentContact.AngleFromUpright) > MaxSlopeAngle)
             {
@@ -80,7 +93,7 @@ public class PlayerController : MonoBehaviour
                     slideForce += slideDirection * Deceleration;
                 }
                 _velocity += slideForce * Time.fixedDeltaTime;
-                _velocity = _velocity.CapMagnitude(MaxSlideSpeed);
+                _velocity = Vector2.ClampMagnitude(_velocity, MaxSlideSpeed);
             }
             else if (_inputDirection.sqrMagnitude < 0.5f)
             {
@@ -108,14 +121,14 @@ public class PlayerController : MonoBehaviour
                 {
                     velocityDifference = velocityDifference.normalized * Acceleration * Time.fixedDeltaTime;
                     _velocity += velocityDifference;
-                    _velocity = _velocity.CapMagnitude(Speed);
+                    _velocity = Vector2.ClampMagnitude(_velocity, Speed);
                 }
             }
             _velocity = _currentContact.VelocityAlongSlope(_velocity);
 
             MoveAlongGround(Time.fixedDeltaTime);
         }
-        else
+        else if (!_inAir)
         {
             _inAir = true;
         }
@@ -130,8 +143,17 @@ public class PlayerController : MonoBehaviour
             {
                 _jumpHoldTime = MaxJumpButtonHoldTime;
             }
+            Vector2 airMovement = _inputDirection * Acceleration * InAirMovementModifier;
+            if (Mathf.Abs((_velocity + airMovement).x) < Speed)
+            {
+                _velocity += airMovement;
+            }
             _velocity += Vector2.down * Gravity * Time.fixedDeltaTime;
-            transform.position += (Vector3)_velocity * Time.fixedDeltaTime;
+            if (_velocity.y < -MaxFallSpeed)
+            {
+                _velocity.y = -MaxFallSpeed;
+            }
+            HandleAirMovement(Time.fixedDeltaTime);
         }
     }
 
@@ -153,6 +175,7 @@ public class PlayerController : MonoBehaviour
         /// is determined by our current slope and future slope
         /// To fix all of these things, we'll move the character in small increments
         /// fixing positioning and rotation along the way
+        _inAir = false;
         float totalDistance = _velocity.magnitude * deltaTime;
         float incrementTime = deltaTime * (totalDistance / SimulationIncrementDistance);
         Vector2 currentPosition = transform.position;
@@ -180,6 +203,83 @@ public class PlayerController : MonoBehaviour
             totalDistance -= stepMovement;
         }
         transform.position = transform.position.SetXY(currentPosition);
+    }
+
+    private void HandleAirMovement(float deltaTime, bool shouldRecurse = false)
+    {
+        Collider2D[] overlapping = new Collider2D[10];
+        RaycastHit2D[] hits = new RaycastHit2D[10];
+        float totalDistance = _velocity.magnitude * deltaTime;
+        float incrementTime = deltaTime * (SimulationIncrementDistance/ totalDistance);
+        Vector2 currentPosition = (Vector2)transform.position + Collider.offset;
+        while (totalDistance > EPSILON)
+        {
+            int numOverlapping = Physics2D.OverlapBoxNonAlloc(currentPosition, Collider.size * 0.95f, 0, overlapping);
+            float movementTime = Mathf.Min(deltaTime, incrementTime);
+            deltaTime = Mathf.Max(0, deltaTime - incrementTime);
+            float movementDistance = Mathf.Min(totalDistance, SimulationIncrementDistance);
+            int numHits = Physics2D.BoxCastNonAlloc(currentPosition, Collider.size, 0, _velocity.normalized, hits, movementDistance, ~LayerMask.GetMask("Character"));
+            Vector2 adjustment = Vector2.zero;
+            float distance = float.PositiveInfinity;
+            for (int i = 0; i < numHits; i++)
+            {
+                RaycastHit2D current = hits[i];
+                if (current.distance > distance)
+                {
+                    continue;
+                }
+                if (current.collider.gameObject.name == "block")
+                {
+                    Debug.Log("Hit platform");
+                    if (shouldRecurse)
+                    {
+                        HandleAirMovement(Time.fixedDeltaTime, false);
+                    }
+                }
+                bool currentlyHitting = true;
+                for (int j = 0; j < numOverlapping; j++)
+                {
+                    if (current.collider == overlapping[j])
+                    {
+                        currentlyHitting = false;
+                        break;
+                    }
+                }
+                if (currentlyHitting)
+                {
+                    if ((current.collider.GetComponent<OneWayPlatform>() != null && _velocity.y > 0)
+                        || Vector2.Dot(current.normal, _velocity) > 0)
+                    {
+                        /// If we're going up and hit a one way platform, ignore it
+                        continue;
+                    }
+                    distance = current.distance;
+                    adjustment = current.normal * Vector2.Dot(current.normal, _velocity) * -1f;
+                }
+            }
+            if (!float.IsPositiveInfinity(distance))
+            {
+                currentPosition += _velocity.normalized * distance;
+                _velocity += adjustment;
+                _velocity *= 0.5f;
+                movementTime *= 1 - (distance / movementDistance);
+                currentPosition += _velocity * movementTime;
+                totalDistance = _velocity.magnitude * deltaTime;
+                if (Vector2.Angle(adjustment, Vector2.up) < 60)
+                {
+                    /// We've hit the ground, so let's start moving along the ground
+                    transform.position = transform.position.SetXY(currentPosition - Collider.offset);
+                    MoveAlongGround(deltaTime);
+                    return;
+                }
+            }
+            else
+            {
+                currentPosition += _velocity * movementTime;
+                totalDistance -= movementDistance;
+            }
+        }
+        transform.position = transform.position.SetXY(currentPosition - Collider.offset);
     }
 
     private GroundContact GetCurrentGroundContact()

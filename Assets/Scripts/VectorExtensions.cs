@@ -19,16 +19,6 @@ public static class VectorExtensions
         return new Vector2(rotatedX, rotatedY);
     }
 
-    public static Vector2 CapMagnitude(this Vector2 vector, float cap)
-    {
-        float magnitude = vector.magnitude;
-        if (magnitude > cap)
-        {
-            vector *= cap / magnitude;
-        }
-        return vector;
-    }
-
     public static Vector3 SetXY(this Vector3 vector, Vector2 newXY)
     {
         vector.x = newXY.x;
