@@ -5,6 +5,8 @@ using UnityEngine;
 [RequireComponent(typeof(BoxCollider2D))]
 public class PlayerController : MonoBehaviour
 {
+    public CharacterPhysicsBody PhysicsBody;
+
     public BoxCollider2D Collider;
 
     public float TimeToTopSpeed;
@@ -53,11 +55,13 @@ public class PlayerController : MonoBehaviour
     {
         float x = Input.GetAxis("Horizontal");
         _inputDirection = Vector2.right * x;
+        PhysicsBody.SetInputDirection(_inputDirection);
         _jumpPressed = Input.GetButton("Jump");
+        PhysicsBody.SetJumpPressed(_jumpPressed);
         RotateWithGround();
     }
 
-    void FixedUpdate()
+    void FixedUpdateNOT()
     {
         /// Stuff to remember
         /// -When jumping, need to zero out y part of velocity, since we don't want running up slope to cause the player to jumphigher
@@ -159,7 +163,7 @@ public class PlayerController : MonoBehaviour
 
     private void RotateWithGround()
     {
-        Quaternion rotation = Quaternion.Euler(0, 0, _currentContact.AngleFromUpright);
+        Quaternion rotation = Quaternion.Euler(0, 0, PhysicsBody.BodyAngleDegrees);
         transform.rotation = rotation;
     }
 

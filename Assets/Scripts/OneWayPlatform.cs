@@ -4,15 +4,5 @@ using UnityEngine;
 
 public class OneWayPlatform : MonoBehaviour
 {
-    // Start is called before the first frame update
-    void Start()
-    {
-        
-    }
-
-    // Update is called once per frame
-    void Update()
-    {
-        
-    }
+    public Vector2 SolidDirection = Vector2.down;
 }
