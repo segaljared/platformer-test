@@ -536,6 +536,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: aff3a5e6d007b994d8b912612aec8256, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  SolidDirection: {x: 0, y: -1}
 --- !u!1 &152062673
 GameObject:
   m_ObjectHideFlags: 0
@@ -567,6 +568,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9641b3748359472498480e4edf75a40d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  PhysicsBody: {fileID: 0}
   Collider: {fileID: 152062677}
   TimeToTopSpeed: 0.5
   TimeToStop: 0.35
@@ -703,6 +705,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: aff3a5e6d007b994d8b912612aec8256, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  SolidDirection: {x: 0, y: -1}
 --- !u!61 &203996291
 BoxCollider2D:
   m_ObjectHideFlags: 0
@@ -994,7 +997,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1211657368}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -13, y: 2, z: 0}
+  m_LocalPosition: {x: -13, y: 4, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}
@@ -1249,6 +1252,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: aff3a5e6d007b994d8b912612aec8256, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  SolidDirection: {x: 0, y: -1}
 --- !u!61 &2024748114
 BoxCollider2D:
   m_ObjectHideFlags: 0
@@ -1371,6 +1375,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: aff3a5e6d007b994d8b912612aec8256, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  SolidDirection: {x: 0, y: -1}
 --- !u!61 &2138096462
 BoxCollider2D:
   m_ObjectHideFlags: 0

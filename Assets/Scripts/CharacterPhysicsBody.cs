@@ -345,6 +345,7 @@ public class CharacterPhysicsBody : MonoBehaviour
         Vector2 currentPosition = (Vector2)transform.position + Collider.offset.RotateRadians(_groundContact.RadiansFromUpright);
         RaycastHit2D placementHit = Physics2D.BoxCast(currentPosition + Vector2.up.RotateRadians(_groundContact.RadiansFromUpright) * 0.5f, Collider.size, _groundContact.AngleFromUpright, Vector2.down.RotateRadians(_groundContact.RadiansFromUpright), 0.75f, _collisionMask);
         currentPosition = placementHit.centroid;
+        bool seenZero = false;
         while (totalDistance > EPSILON)
         {
             _velocity = _groundContact.VelocityAlongSlope(_velocity);
@@ -354,7 +355,15 @@ public class CharacterPhysicsBody : MonoBehaviour
                 deltaTime *= 1 - (distance / totalDistance);
                 if (distance == 0)
                 {
-                    break;
+                    if (seenZero)
+                    {
+                        break;
+                    }
+                    seenZero = true;
+                }
+                else
+                {
+                    seenZero = false;
                 }
                 totalDistance -= distance;
                 if (Vector2.Angle(adjustment, Vector2.up) > MaxSlopeAngle)
@@ -367,6 +376,9 @@ public class CharacterPhysicsBody : MonoBehaviour
                 {
                     _velocity = Vector2.right.RotateRadians(Vector2.SignedAngle(Vector2.up, hit.normal)) 
                                 * _velocity.magnitude * Mathf.Sign(Vector2.Dot(_velocity, Vector2.right));
+                    //_groundContact = GetCurrentGroundContact(currentPosition - Collider.offset.RotateRadians(_groundContact.RadiansFromUpright));
+                    placementHit = Physics2D.BoxCast(currentPosition + Vector2.up.RotateRadians(_groundContact.RadiansFromUpright) * 0.5f, Collider.size, _groundContact.AngleFromUpright, Vector2.down.RotateRadians(_groundContact.RadiansFromUpright), 0.75f, _collisionMask);
+                    currentPosition = placementHit.centroid;
                 }
             }
             else
