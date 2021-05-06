@@ -9,17 +9,42 @@ public class CharacterPhysicsBody : MonoBehaviour
     public BoxCollider2D Collider;
 
     [Header("Ground Movement")]
+    /// <summary>
+    /// The time in second to reach the top ground speed from standstill (used to calculate how fast the character accelerates)
+    /// </summary>
     public float TimeToTopSpeed;
+    /// <summary>
+    /// The time from the top ground speed to stopping when the player stops pressing Left/Right arrows
+    /// </summary>
     public float TimeToStop;
+    /// <summary>
+    /// Top speed on the ground
+    /// </summary>
     public float GroundSpeed;
-
+    /// <summary>
+    /// The maximum angle of a slope that the character can navigate
+    /// </summary>
     public float MaxSlopeAngle;
-    public float MaxSlideSpeed;
 
     [Header("Jumping")]
+    /// <summary>
+    /// Amount of time after leaving the ground (if walking off an edge, but not from jumping) where it is
+    /// still possible to jump.
+    /// 
+    /// Gives a little extra time when running off a platform, for example, to actually jump
+    /// </summary>
     public float CoyoteTime;
+    /// <summary>
+    /// The minimum height of any jump if Space is only pressed for one frame
+    /// </summary>
     public float MinJumpHeight;
+    /// <summary>
+    /// The maximum height reached by holding Space
+    /// </summary>
     public float MaxJumpHeight;
+    /// <summary>
+    /// The time it takes for the character to reach the maximum height
+    /// </summary>
     public float TimeToReachMaxJumpHeight;
     public float MaxJumpButtonHoldTime;
     public float MaxFallSpeed;
@@ -66,7 +91,7 @@ public class CharacterPhysicsBody : MonoBehaviour
         _horizontalAcceleration = GroundSpeed / TimeToTopSpeed;
         _horizontalDeceleration = GroundSpeed / TimeToStop;
         _gravity = 2 * TimeToReachMaxJumpHeight * TimeToReachMaxJumpHeight * MaxJumpHeight;
-        _initialJumpImpulse = Mathf.Sqrt(2 * _gravity * MinJumpHeight);
+        _initialJumpImpulse = Mathf.Sqrt(2 * _gravity * MaxJumpHeight);
         _jumpHoldAcceleration = _gravity - (_initialJumpImpulse * _initialJumpImpulse) / (2 * MaxJumpHeight);
     }
 
@@ -105,7 +130,12 @@ public class CharacterPhysicsBody : MonoBehaviour
     {
         StartJumpIfPossible();
         ApplyInAirHorizontalAdjustments();
+        bool stillUp = _velocity.y > 0;
         ApplyGravity();
+        if (stillUp && _velocity.y <= 0)
+        {
+            Debug.Log($"Time to max height: {Time.fixedTime - _lastGroundTime}");
+        }
         HandleAirMovement(Time.fixedDeltaTime);
         UpdateNotCollidingWithList();
     }
@@ -123,7 +153,7 @@ public class CharacterPhysicsBody : MonoBehaviour
         }
         ApplyInAirHorizontalAdjustments();
         /// We also want to apply some friction here
-        float friction = _horizontalDeceleration * (0.1f + 0.4f * Mathf.Abs(Vector2.Dot(_velocity, Vector2.right)));
+        float friction = _horizontalDeceleration * (0.1f + 0.15f * Mathf.Abs(Vector2.Dot(_velocity, Vector2.right)));
         _velocity -= _velocity.normalized * friction * Time.fixedDeltaTime;
 
         ApplyGravity();
@@ -143,6 +173,13 @@ public class CharacterPhysicsBody : MonoBehaviour
         if (_hasJumped && !_jumpPressed)
         {
             _hasJumped = false;
+        }
+        if (CheckForDropThrough(out Collider2D collider))
+        {
+            _notCollidingWith.Add(collider);
+            _state = BodyState.FreeFall;
+            OnFreeFallUpdate();
+            return;
         }
         ApplyGroundInput();
         HandleGroundMovement(Time.fixedDeltaTime);
@@ -170,7 +207,7 @@ public class CharacterPhysicsBody : MonoBehaviour
     private void UpdateNotCollidingWithList()
     {
         Collider2D[] overlapping = new Collider2D[10];
-        int numOverlapping = Physics2D.OverlapBoxNonAlloc((Vector2)transform.position + Collider.offset, Collider.size, 0, overlapping, _collisionMask);
+        int numOverlapping = Physics2D.OverlapBoxNonAlloc(GetColliderCenter(), Collider.size, _groundContact.AngleFromUpright, overlapping, _collisionMask);
         foreach (var notCollideWith in _notCollidingWith.ToList())
         {
             bool keepInList = false;
@@ -189,6 +226,22 @@ public class CharacterPhysicsBody : MonoBehaviour
         }
     }
 
+    private bool CheckForDropThrough(out Collider2D collider)
+    {
+        if (_input.y < -0.5f)
+        {
+            RaycastHit2D platformHit = Physics2D.BoxCast(GetColliderCenter(), Collider.size, _groundContact.AngleFromUpright, Vector2.down.RotateRadians(_groundContact.RadiansFromUpright), 0.5f, _collisionMask);
+            if (platformHit.collider != null)
+            {
+                OneWayPlatform platform = platformHit.collider.GetComponent<OneWayPlatform>();
+                collider = platformHit.collider;
+                return platform != null && Vector2.Dot(platform.SolidDirection, Vector2.down.RotateRadians(_groundContact.RadiansFromUpright)) > 0;
+            }
+        }
+        collider = null;
+        return false;
+    }
+
     private bool StartJumpIfPossible()
     {
         if (!_hasJumped && _jumpPressed && Time.fixedTime - _lastGroundTime < CoyoteTime)
@@ -204,13 +257,13 @@ public class CharacterPhysicsBody : MonoBehaviour
 
     private void CheckForStateChangeFromSlideOrGroundMovement()
     {
-        if (Physics2D.OverlapBox((Vector2)transform.position + Collider.offset, Collider.size, 0, _collisionMask) == null)
+        _groundContact = GetCurrentGroundContact();
+        if (Physics2D.OverlapBox(GetColliderCenter(), Collider.size, _groundContact.AngleFromUpright, _collisionMask) == null && false)
         {
             _state = BodyState.FreeFall;
         }
         else
         {
-            _groundContact = GetCurrentGroundContact();
             if (_groundContact.HasContact && Mathf.Abs(_groundContact.AngleFromUpright) > MaxSlopeAngle)
             {
                 _state = BodyState.InContactWithOtherBody;
@@ -237,8 +290,9 @@ public class CharacterPhysicsBody : MonoBehaviour
         {
             /// Trying to adjust in the same direction that we're going, so we need to only apply horizontal movement 
             /// up to the maximum speed as noted above
-            float appliedX = Mathf.Max(_velocity.x, Mathf.Min(_velocity.x + airMovement.x, GroundSpeed * InAirMovementModifier));
-            _velocity.x = appliedX;
+            float appliedX = Mathf.Max(Mathf.Abs(_velocity.x), Mathf.Min(Mathf.Abs(_velocity.x + airMovement.x), GroundSpeed * InAirMovementModifier));
+
+            _velocity.x = appliedX * Mathf.Sign(_velocity.x);
         }
         else
         {
@@ -249,7 +303,7 @@ public class CharacterPhysicsBody : MonoBehaviour
 
     private void ApplyGroundInput()
     {
-        if (_input.sqrMagnitude < EPSILON)
+        if (HorizontalInput.sqrMagnitude < EPSILON)
         {
             float deceleration = _horizontalDeceleration * Time.fixedDeltaTime;
             if (deceleration >= _velocity.magnitude)
@@ -263,7 +317,7 @@ public class CharacterPhysicsBody : MonoBehaviour
         }
         else
         {
-            Vector2 desiredDirection = _input.RotateRadians(_groundContact.RadiansFromUpright) * GroundSpeed;
+            Vector2 desiredDirection = HorizontalInput.RotateRadians(_groundContact.RadiansFromUpright) * GroundSpeed;
             Vector2 velocityDifference = desiredDirection - _velocity;
             if (velocityDifference.sqrMagnitude > 0)
             {
@@ -289,14 +343,14 @@ public class CharacterPhysicsBody : MonoBehaviour
         _groundContact = GroundContact.InAirContact;
         RaycastHit2D[] hits = new RaycastHit2D[10];
         float totalDistance = _velocity.magnitude * deltaTime;
-        Vector2 currentPosition = (Vector2)transform.position + Collider.offset;
+        Vector2 currentPosition = GetColliderCenter();
         if (CheckForCollisions(currentPosition, totalDistance, hits, out float distance, out RaycastHit2D hit, out Vector2 adjustment))
         {
             currentPosition = hit.centroid;
             _velocity += adjustment;
             _velocity *= ImpactVelocityModifier;
             deltaTime *= 1 - (distance / totalDistance);
-            transform.position = transform.position.SetXY(currentPosition - Collider.offset);
+            SetTransformPositionFromColliderPosition(currentPosition);
             if (Vector2.Angle(adjustment, Vector2.up) > MaxSlopeAngle)
             {
                 _state = BodyState.InContactWithOtherBody;
@@ -309,7 +363,7 @@ public class CharacterPhysicsBody : MonoBehaviour
         else
         {
             currentPosition += _velocity * deltaTime;
-            transform.position = transform.position.SetXY(currentPosition - Collider.offset);
+            SetTransformPositionFromColliderPosition(currentPosition);
         }
     }
 
@@ -317,16 +371,15 @@ public class CharacterPhysicsBody : MonoBehaviour
     {
         _groundContact = GetCurrentGroundContact();
         RaycastHit2D[] hits = new RaycastHit2D[10];
-        Vector2 currentPosition = (Vector2)transform.position + Collider.offset;
-        while (deltaTime > 0)
+        Vector2 currentPosition = GetColliderCenter();
+        while (deltaTime > 0 && _velocity.sqrMagnitude > EPSILON)
         {
             float totalDistance = _velocity.magnitude * deltaTime;
-            if (CheckForCollisions(currentPosition, totalDistance, hits, out float distance, out RaycastHit2D hit, out Vector2 adjustment))
+            if (CheckForCollisions(currentPosition, totalDistance, hits, 0.99f, out float distance, out RaycastHit2D hit, out Vector2 adjustment))
             {
                 currentPosition = hit.centroid;
                 _velocity += adjustment;
-                deltaTime *= 1 - (distance / totalDistance);
-                
+                deltaTime *= 1 - distance / totalDistance;
             }
             else
             {
@@ -334,7 +387,7 @@ public class CharacterPhysicsBody : MonoBehaviour
                 deltaTime = 0;
             }
         }
-        transform.position = transform.position.SetXY(currentPosition - Collider.offset);
+        SetTransformPositionFromColliderPosition(currentPosition);
     }
 
     private void HandleGroundMovement(float deltaTime)
@@ -342,21 +395,23 @@ public class CharacterPhysicsBody : MonoBehaviour
         _groundContact = GetCurrentGroundContact();
         RaycastHit2D[] hits = new RaycastHit2D[10];
         float totalDistance = _velocity.magnitude * deltaTime;
-        Vector2 currentPosition = (Vector2)transform.position + Collider.offset.RotateRadians(_groundContact.RadiansFromUpright);
-        RaycastHit2D placementHit = Physics2D.BoxCast(currentPosition + Vector2.up.RotateRadians(_groundContact.RadiansFromUpright) * 0.5f, Collider.size, _groundContact.AngleFromUpright, Vector2.down.RotateRadians(_groundContact.RadiansFromUpright), 0.75f, _collisionMask);
-        currentPosition = placementHit.centroid;
+        Vector2 currentPosition = GetColliderCenter();
+        currentPosition = GetPositionOnGroundBelow(currentPosition);
         bool seenZero = false;
+
         while (totalDistance > EPSILON)
         {
             _velocity = _groundContact.VelocityAlongSlope(_velocity);
-            if (CheckForCollisions(currentPosition, totalDistance, hits, out float distance, out RaycastHit2D hit, out Vector2 adjustment))
+            if (CheckForCollisions(currentPosition, totalDistance, hits, 0.99f, out float distance, out RaycastHit2D hit, out Vector2 adjustment))
             {
                 currentPosition = hit.centroid;
-                deltaTime *= 1 - (distance / totalDistance);
+                deltaTime *= 1 - distance / totalDistance; ;
                 if (distance == 0)
                 {
                     if (seenZero)
                     {
+                        /// If we have two 0's in a row, we'll just assume that we've hit something solid and
+                        /// stop this current simulation round in order to avoid any possible infinite loops
                         break;
                     }
                     seenZero = true;
@@ -368,17 +423,20 @@ public class CharacterPhysicsBody : MonoBehaviour
                 totalDistance -= distance;
                 if (Vector2.Angle(adjustment, Vector2.up) > MaxSlopeAngle)
                 {
-                    transform.position = transform.position.SetXY(currentPosition - Collider.offset);
+                    _state = BodyState.InContactWithOtherBody;
+                    SetTransformPositionFromColliderPosition(currentPosition);
                     HandleSlideMovement(deltaTime);
                     return;
                 }
                 else
                 {
-                    _velocity = Vector2.right.RotateRadians(Vector2.SignedAngle(Vector2.up, hit.normal)) 
+                    Vector2 newDirection = Vector2.right.RotateDegrees(Vector2.SignedAngle(Vector2.up, hit.normal));
+                    newDirection *= Mathf.Sign(Vector2.Dot(_velocity, Vector2.right));
+                    _velocity = newDirection * _velocity.magnitude;
+                    _velocity = Vector2.right.RotateDegrees(Vector2.SignedAngle(Vector2.up, hit.normal)) 
                                 * _velocity.magnitude * Mathf.Sign(Vector2.Dot(_velocity, Vector2.right));
-                    //_groundContact = GetCurrentGroundContact(currentPosition - Collider.offset.RotateRadians(_groundContact.RadiansFromUpright));
-                    placementHit = Physics2D.BoxCast(currentPosition + Vector2.up.RotateRadians(_groundContact.RadiansFromUpright) * 0.5f, Collider.size, _groundContact.AngleFromUpright, Vector2.down.RotateRadians(_groundContact.RadiansFromUpright), 0.75f, _collisionMask);
-                    currentPosition = placementHit.centroid;
+                    _groundContact = GetCurrentGroundContact(currentPosition - Collider.offset.RotateRadians(_groundContact.RadiansFromUpright));
+                    currentPosition = GetPositionOnGroundBelow(currentPosition);
                 }
             }
             else
@@ -387,13 +445,39 @@ public class CharacterPhysicsBody : MonoBehaviour
                 totalDistance = 0;
             }
         }
-        transform.position = transform.position.SetXY(currentPosition - Collider.offset);
+        currentPosition = GetPositionOnGroundBelow(currentPosition);
+        SetTransformPositionFromColliderPosition(currentPosition);
+    }
+
+    private Vector2 GetPositionOnGroundBelow(Vector2 currentPosition)
+    {
+        RaycastHit2D placementHit = Physics2D.BoxCast(currentPosition + Vector2.up.RotateRadians(_groundContact.RadiansFromUpright) * 0.5f, Collider.size - new Vector2(Collider.size.x * 0.05f, 0), _groundContact.AngleFromUpright, Vector2.down.RotateRadians(_groundContact.RadiansFromUpright), 0.75f, _collisionMask);
+        if (placementHit.collider != null)
+        {
+            return placementHit.centroid;
+        }
+        return currentPosition;
+    }
+
+    private void SetTransformPositionFromColliderPosition(Vector2 colliderPosition)
+    {
+        transform.position = transform.position.SetXY(colliderPosition - Collider.offset.RotateRadians(_groundContact.RadiansFromUpright));
+    }
+
+    private Vector2 GetColliderCenter()
+    {
+        return (Vector2)transform.position + Collider.offset.RotateRadians(_groundContact.RadiansFromUpright);
     }
 
     private bool CheckForCollisions(Vector2 currentPosition, float totalDistance, RaycastHit2D[] hits, out float distance, out RaycastHit2D hit, out Vector2 adjustment)
     {
+        return CheckForCollisions(currentPosition, totalDistance, hits, 1.0f, out distance, out hit, out adjustment);
+    }
+
+    private bool CheckForCollisions(Vector2 currentPosition, float totalDistance, RaycastHit2D[] hits, float sizeModifier, out float distance, out RaycastHit2D hit, out Vector2 adjustment)
+    {
         float angle = Mathf.Abs(_groundContact.AngleFromUpright) < 2 * MaxSlopeAngle ? _groundContact.AngleFromUpright : 0;
-        int numHit = Physics2D.BoxCastNonAlloc(currentPosition, Collider.size, angle, _velocity.normalized, hits, totalDistance, _collisionMask);
+        int numHit = Physics2D.BoxCastNonAlloc(currentPosition, Collider.size * sizeModifier, angle, _velocity.normalized, hits, totalDistance, _collisionMask);
         adjustment = Vector2.zero;
         distance = float.PositiveInfinity;
         hit = default(RaycastHit2D);
@@ -426,6 +510,20 @@ public class CharacterPhysicsBody : MonoBehaviour
             distance = current.distance;
             adjustment = current.normal * Vector2.Dot(current.normal, _velocity) * -1f;
         }
+        if (!float.IsPositiveInfinity(distance) && sizeModifier != 1.0f)
+        {
+            numHit = Physics2D.BoxCastNonAlloc(hit.centroid + hit.normal * 0.5f / sizeModifier, Collider.size, angle, -hit.normal, hits, 1f / sizeModifier, _collisionMask);
+            for (int i = 0; i < numHit; i++)
+            {
+                if (hits[i].collider == hit.collider)
+                {
+                    hit = hits[i];
+                    break;
+                }
+            }
+            //hit = Physics2D.BoxCast(hit.centroid + hit.normal * 0.5f / sizeModifier, Collider.size, angle, -hit.normal, 1f / sizeModifier, _collisionMask);
+        }
+
         return !float.IsPositiveInfinity(distance);
     }
 
@@ -441,7 +539,7 @@ public class CharacterPhysicsBody : MonoBehaviour
         return FindGroundContact(left, right, 4);
     }
 
-    private static GroundContact FindGroundContact(Vector2 left, Vector2 right, int maxDepth)
+    private GroundContact FindGroundContact(Vector2 left, Vector2 right, int maxDepth)
     {
         RaycastHit2D leftHit = Physics2D.Raycast(left, Vector2.down, 0.5f, ~LayerMask.GetMask("Character"));
         RaycastHit2D rightHit = Physics2D.Raycast(right, Vector2.down, 0.5f, ~LayerMask.GetMask("Character"));
@@ -480,7 +578,7 @@ public class CharacterPhysicsBody : MonoBehaviour
     {
         get
         {
-            return Vector2.right * Vector2.Dot(_input, Vector2.right);
+            return new Vector2(_input.x, 0); ;
         }
     }
 
