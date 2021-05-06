@@ -492,7 +492,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 96061547}
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: -25.541323, y: 3.0945592, z: 1.4721243}
+  m_LocalPosition: {x: -26.541323, y: 4.094559, z: 1.4721243}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 1877971738}
@@ -674,16 +674,14 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   Collider: {fileID: 152062677}
-  TimeToTopSpeed: 0.5
-  TimeToStop: 0.35
+  TimeToTopSpeed: 0.1
+  TimeToStop: 0.05
   GroundSpeed: 8
   MaxSlopeAngle: 30
-  MaxSlideSpeed: 4
-  CoyoteTime: 0.1
-  MinJumpHeight: 2
+  CoyoteTime: 0.2
+  MinJumpHeight: 3
   MaxJumpHeight: 5
-  TimeToReachMaxJumpHeight: 2
-  MaxJumpButtonHoldTime: 1
+  TimeToReachMaxJumpHeight: 0.5
   MaxFallSpeed: 16
   InAirMovementModifier: 0.75
   ImpactVelocityModifier: 0.8
@@ -1498,7 +1496,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2024748112}
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 13.458677, y: -8.655441, z: 1.4721243}
+  m_LocalPosition: {x: 12.458677, y: -7.9054413, z: 1.4721243}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 1877971738}

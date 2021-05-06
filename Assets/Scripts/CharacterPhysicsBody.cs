@@ -46,14 +46,23 @@ public class CharacterPhysicsBody : MonoBehaviour
     /// The time it takes for the character to reach the maximum height
     /// </summary>
     public float TimeToReachMaxJumpHeight;
-    public float MaxJumpButtonHoldTime;
+    /// <summary>
+    /// The maximum speed that the character will fall at
+    /// </summary>
     public float MaxFallSpeed;
+    /// <summary>
+    /// A value to multiple horizontal acceleration by when in the air. The closer to 
+    /// zero the slower the chracter accelerates when in the air
+    /// </summary>
     [Range(0, 1)]
     public float InAirMovementModifier = 0.33f;
+    /// <summary>
+    /// A factor to slow velocity by when impacting an obstacle while in the air
+    /// </summary>
     [Range(0, 1)]
     public float ImpactVelocityModifier = 0.5f;
 
-    enum BodyState { OnGround, InContactWithOtherBody, FreeFall, Jumping };
+    enum BodyState { OnGround, InContactWithOtherBody, FreeFall };
 
     public float BodyAngleDegrees
     {
@@ -90,9 +99,14 @@ public class CharacterPhysicsBody : MonoBehaviour
     {
         _horizontalAcceleration = GroundSpeed / TimeToTopSpeed;
         _horizontalDeceleration = GroundSpeed / TimeToStop;
-        _gravity = 2 * TimeToReachMaxJumpHeight * TimeToReachMaxJumpHeight * MaxJumpHeight;
-        _initialJumpImpulse = Mathf.Sqrt(2 * _gravity * MaxJumpHeight);
-        _jumpHoldAcceleration = _gravity - (_initialJumpImpulse * _initialJumpImpulse) / (2 * MaxJumpHeight);
+        float holdGravity = 2 * MaxJumpHeight / (TimeToReachMaxJumpHeight * TimeToReachMaxJumpHeight);
+        _initialJumpImpulse = Mathf.Sqrt(2 * holdGravity * MaxJumpHeight);
+        _gravity = (_initialJumpImpulse * _initialJumpImpulse) / (2 * MinJumpHeight);
+        _jumpHoldAcceleration = _gravity - holdGravity;
+
+        Vector2 maxSlopeDown = new Vector2(Mathf.Cos(-MaxSlopeAngle * Mathf.Deg2Rad), Mathf.Sin(-MaxSlopeAngle * Mathf.Deg2Rad));
+        float gravityDownSlope = Vector2.Dot(Vector2.down * _gravity, maxSlopeDown);
+        _slideFriction = 0.5f * gravityDownSlope;
     }
 
     void Start()
@@ -120,9 +134,6 @@ public class CharacterPhysicsBody : MonoBehaviour
             case BodyState.OnGround:
                 OnGroundUpdate();
                 break;
-            case BodyState.Jumping:
-                OnJumpUpdate();
-                break;
         }
     }
 
@@ -130,12 +141,7 @@ public class CharacterPhysicsBody : MonoBehaviour
     {
         StartJumpIfPossible();
         ApplyInAirHorizontalAdjustments();
-        bool stillUp = _velocity.y > 0;
         ApplyGravity();
-        if (stillUp && _velocity.y <= 0)
-        {
-            Debug.Log($"Time to max height: {Time.fixedTime - _lastGroundTime}");
-        }
         HandleAirMovement(Time.fixedDeltaTime);
         UpdateNotCollidingWithList();
     }
@@ -148,12 +154,15 @@ public class CharacterPhysicsBody : MonoBehaviour
         }
         if (StartJumpIfPossible())
         {
-            OnJumpUpdate();
+            OnFreeFallUpdate();
             return;
         }
-        ApplyInAirHorizontalAdjustments();
+        if (!_groundContact.HasContact || Mathf.Abs(_groundContact.AngleFromUpright) > 2 * MaxSlopeAngle)
+        {
+            ApplyInAirHorizontalAdjustments();
+        }
         /// We also want to apply some friction here
-        float friction = _horizontalDeceleration * (0.1f + 0.15f * Mathf.Abs(Vector2.Dot(_velocity, Vector2.right)));
+        float friction = _slideFriction * (0.2f + 0.8f * Mathf.Abs(Vector2.Dot(_velocity.normalized, Vector2.right)));
         _velocity -= _velocity.normalized * friction * Time.fixedDeltaTime;
 
         ApplyGravity();
@@ -167,7 +176,7 @@ public class CharacterPhysicsBody : MonoBehaviour
         _lastGroundTime = Time.fixedTime;
         if (StartJumpIfPossible())
         {
-            OnJumpUpdate();
+            OnFreeFallUpdate();
             return;
         }
         if (_hasJumped && !_jumpPressed)
@@ -184,23 +193,6 @@ public class CharacterPhysicsBody : MonoBehaviour
         ApplyGroundInput();
         HandleGroundMovement(Time.fixedDeltaTime);
         CheckForStateChangeFromSlideOrGroundMovement();
-        UpdateNotCollidingWithList();
-    }
-
-    private void OnJumpUpdate()
-    {
-        if (!_jumpPressed || _jumpHoldTime >= MaxJumpButtonHoldTime)
-        {
-            _jumpHoldTime = MaxJumpButtonHoldTime;
-            _state = BodyState.FreeFall;
-            OnFreeFallUpdate();
-            return;
-        }
-        _jumpHoldTime += Time.fixedDeltaTime;
-        _velocity += Vector2.up * _jumpHoldAcceleration * Time.fixedDeltaTime;
-        ApplyInAirHorizontalAdjustments();
-        ApplyGravity();
-        HandleAirMovement(Time.fixedDeltaTime);
         UpdateNotCollidingWithList();
     }
 
@@ -246,9 +238,9 @@ public class CharacterPhysicsBody : MonoBehaviour
     {
         if (!_hasJumped && _jumpPressed && Time.fixedTime - _lastGroundTime < CoyoteTime)
         {
-            _jumpHoldTime = 0;
+            _hasReleasedJump = false;
             _velocity.y = _initialJumpImpulse;
-            _state = BodyState.Jumping;
+            _state = BodyState.FreeFall;
             _hasJumped = true;
             return true;
         }
@@ -331,7 +323,16 @@ public class CharacterPhysicsBody : MonoBehaviour
 
     private void ApplyGravity()
     {
-        _velocity += Vector2.down * _gravity * Time.fixedDeltaTime;
+        float gravity = _gravity;
+        if (_jumpPressed && !_hasReleasedJump && _velocity.y > 0)
+        {
+            gravity -= _jumpHoldAcceleration;
+        }
+        else if (!_jumpPressed)
+        {
+            _hasReleasedJump = true;
+        }
+        _velocity += Vector2.down * gravity * Time.fixedDeltaTime;
         if (_velocity.y < -MaxFallSpeed)
         {
             _velocity.y = -MaxFallSpeed;
@@ -591,12 +592,13 @@ public class CharacterPhysicsBody : MonoBehaviour
     private float _jumpHoldAcceleration;
     private float _horizontalAcceleration;
     private float _horizontalDeceleration;
+    private float _slideFriction;
 
     private Vector2 _input;
     private bool _jumpPressed;
     private bool _hasJumped;
+    private bool _hasReleasedJump;
     private float _lastGroundTime;
-    private float _jumpHoldTime;
     private GroundContact _groundContact;
     private HashSet<Collider2D> _notCollidingWith = new HashSet<Collider2D>();
 
